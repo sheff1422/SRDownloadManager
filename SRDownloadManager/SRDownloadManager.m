@@ -37,7 +37,7 @@ stringByAppendingPathComponent:NSStringFromClass([self class])]
 
 - (NSURLSession *)downloadSession {
     if (!_downloadSession) {
-        _downloadSession = [NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration defaultSessionConfiguration]
+        _downloadSession = [NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration backgroundSessionConfiguration:@"re.touchwa.downloadmanager"]
                                                          delegate:self
                                                     delegateQueue:[[NSOperationQueue alloc] init]];
     }
@@ -491,6 +491,37 @@ stringByAppendingPathComponent:NSStringFromClass([self class])]
         NSString *filePath = [SRDownloadDirectory stringByAppendingPathComponent:fileName];
         [fileManager removeItemAtPath:filePath error:nil];
     }
+}
+
+#pragma mark - Background download
+
+- (void)URLSessionDidFinishEventsForBackgroundURLSession:(NSURLSession *)session {
+    // Check if all download tasks have been finished.
+    [session getTasksWithCompletionHandler:^(NSArray *dataTasks, NSArray *uploadTasks, NSArray *downloadTasks) {
+        if ([downloadTasks count] == 0) {
+            if (self.backgroundTransferCompletionHandler != nil) {
+                // Copy locally the completion handler.
+                void(^completionHandler)() = self.backgroundTransferCompletionHandler;
+                
+                [[NSOperationQueue mainQueue] addOperationWithBlock:^{
+                    // Call the completion handler to tell the system that there are no other background transfers.
+                    completionHandler();
+                    
+#ifdef TARGET_OS_IPHONE
+#ifndef TARGET_OS_WATCH
+                    // Show a local notification when all downloads are over.
+                    UILocalNotification *localNotification = [[UILocalNotification alloc] init];
+                    localNotification.alertBody = @"All files have been downloaded!";
+                    [[UIApplication sharedApplication] presentLocalNotificationNow:localNotification];
+#endif
+#endif
+                }];
+                
+                // Make nil the backgroundTransferCompletionHandler.
+                self.backgroundTransferCompletionHandler = nil;
+            }
+        }
+    }];
 }
 
 @end
